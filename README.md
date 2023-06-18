@@ -6,6 +6,7 @@ This is the code for our M2R project. We decided to work in RStudio, as it is ea
 + Split data into training and test sets
 + For the self-exciting case, coded recursive form of A-Values and log-likelihood, used built-in optimisation function to compute MLE
 + Computed compensator values using optimal parameters and found p-values using time-rescaling theorem
-+ Created QQ-Plots and KS Score boxplots for SE case
 + For mutually-exciting case, coded recursive form of B-Values and proceeded as in SE case
 + For self and mutually-exciting case, optimised the combined log-likelihood and proceeded as before
+
+We also created Q-Q Plots of the ECDF against each model, and Box Plots for the KS scores obtained from each model.

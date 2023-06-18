@@ -1,12 +1,4 @@
 ## 
-
-thetatraining = list()
-for(s in sort(unique(df_full$src))){
-  print(s)
-  thetatraining[[s]] = optim(par=c(0,0,0), fn=negative_loglikelihood, 
-                     event_times = df_stationsh0[[s]]$time)$par
-}
-
 library(dplyr)
 file_names <- c("santander_summaries/1.csv", "santander_summaries/2.csv", "santander_summaries/3.csv", "santander_summaries/4.csv", "santander_summaries/5.csv", 
                 "santander_summaries/6.csv", "santander_summaries/7.csv", "santander_summaries/8.csv", "santander_summaries/9.csv", "santander_summaries/10.csv", 
@@ -163,6 +155,14 @@ ks_scores_pp_test = numeric()
 for(s in sort(unique(testset$src))){
   ks_scores_pp_test = c(ks_scores_pp_test, ks.test(df_stationsh1[[s]]$pp_pval, 'punif')$statistic)
 }
+
+thetatraining = list()
+for(s in sort(unique(df_full$src))){
+  print(s)
+  thetatraining[[s]] = optim(par=c(0,0,0), fn=negative_loglikelihood, 
+                             event_times = df_stationsh0[[s]]$time)$par
+}
+
 lambdaop = list()
 alphaop = list()
 betaop = list()

@@ -4,6 +4,7 @@ file_names <- c("santander_summaries/1.csv", "santander_summaries/2.csv", "santa
                 "santander_summaries/6.csv", "santander_summaries/7.csv", "santander_summaries/8.csv", "santander_summaries/9.csv", "santander_summaries/10.csv", 
                 "santander_summaries/11.csv", "santander_summaries/12.csv", "santander_summaries/13.csv", "santander_summaries/14.csv", "santander_summaries/15.csv", "santander_summaries/16.csv")
 
+#read in data
 df_full = data.frame(read.table(file_names[1], header=FALSE, sep=','))  
 # Create an empty list to store data frames
 names(df_full) = c('src','dst','time','duration')
@@ -13,6 +14,7 @@ for (file in file_names[2:length(file_names)]) {
   df_full <- rbind(df_full, df)
 }
 
+#convert times, sort in ascending order and filter by station
 set.seed(111)
 df_full$time = (df_full$time - min(df_full$time)) / 60 + runif(dim(df_full)[1])
 df_full = df_full[order(df_full$time),]
@@ -21,17 +23,19 @@ for(s in sort(unique(df_full$src))){
   df_stations[[s]] = df_full[df_full$src == s,]
 }
 
-## T = max(df_full$time) - min(df_full$time)
+#calculate parameter for poisson process, no. of events / time period
 lambda = list()
 for(s in sort(unique(df_full$src))){
   df_filtered = df_stations[[s]][df_stations[[s]]$time < (60 * 24 * 7 * 12),]
   lambda[[s]] = dim(df_filtered)[1] / (60 * 24 * 7 * 12)
 }
 
+#inter-arrival times
 for(s in sort(unique(df_full$src))){
   df_stations[[s]]$int_times = c(df_stations[[s]]$time[1], diff(df_stations[[s]]$time))
 }
 
+#p-values
 for(s in sort(unique(df_full$src))){
   df_stations[[s]]$pp_pval = exp(-lambda[[s]] * df_stations[[s]]$int_times)
 }
@@ -52,10 +56,6 @@ for(s in sort(unique(df_full$src))){
 boxplot(ks_scores_pp, col='lightblue', pch=20)
 boxplot(ks_scores_pp_test, col='lightblue', pch=20)
 boxplot(ks_scores_pp_training, col='lightblue', pch=20)
-## Hawkes process part
-kernel_function <- function(t, alpha, beta) {
-  return(alpha*exp(-beta*t))
-}
 
 par(mar=c(4,4,1,1))
 eval_grid = seq(0,1, length.out=250)
@@ -75,39 +75,6 @@ for(s in sort(unique(testset$src))){
   points(eval_grid, f(eval_grid), type='l', col='lightgray')
 }
 abline(0,1,col='red')
-
-
-recursive_kernel <- function(event_times, alpha, beta){
-  n = length(event_times)
-  A_values = rep(0, n)
-  A_values[1] = 0
-  for (i in 2:n) {
-    A_values[i] = (kernel_function(event_times[i] - event_times[i-1], alpha, beta) / alpha) * (1 + A_values[i-1])
-  }
-  return(A_values)
-}
-
-negative_loglikelihood = function(pars, event_times){
-  ## pars = (lambda_tilde, alpha_tilde, beta_tilde)
-  lambda_tilde = pars[1]
-  alpha_tilde = pars[2]
-  beta_tilde = pars[3]
-  ## Transform back to original scale
-  lambdaop = exp(lambda_tilde)
-  alphaop = exp(alpha_tilde)
-  betaop = exp(beta_tilde) + alphaop
-  ## Calculate the recursive sequence of A
-  A_values = recursive_kernel(event_times, alphaop, betaop)
-  ## First part of log-likelihood
-  p1 = sum(log(lambdaop + alphaop * A_values))
-  ## Second part of log-likelihood
-  t_last = event_times[length(event_times)]
-  p2 = lambdaop* t_last
-  ## Third part of log-likelihood
-  p3 = alphaop / betaop * sum(exp(-betaop * (t_last - event_times)) - 1)
-  ## Return negative log-likelihood
-  return(p2 - p1 - p3)
-}
 
 trainingset = df_full[1:3164820,]
 testset = df_full[3164821:nrow(df_full),]
@@ -156,11 +123,49 @@ for(s in sort(unique(testset$src))){
   ks_scores_pp_test = c(ks_scores_pp_test, ks.test(df_stationsh1[[s]]$pp_pval, 'punif')$statistic)
 }
 
-thetatraining = list()
+
+#Self-exciting hawkes process
+kernel_function <- function(t, alpha, beta) {
+  return(alpha*exp(-beta*t))
+}
+
+recursive_kernel <- function(event_times, alpha, beta){
+  n = length(event_times)
+  A_values = rep(0, n)
+  A_values[1] = 0
+  for (i in 2:n) {
+    A_values[i] = (kernel_function(event_times[i] - event_times[i-1], alpha, beta) / alpha) * (1 + A_values[i-1])
+  }
+  return(A_values)
+}
+
+negative_loglikelihood = function(pars, event_times){
+  ## pars = (lambda_tilde, alpha_tilde, beta_tilde)
+  lambda_tilde = pars[1]
+  alpha_tilde = pars[2]
+  beta_tilde = pars[3]
+  ## Transform back to original scale
+  lambdaop = exp(lambda_tilde)
+  alphaop = exp(alpha_tilde)
+  betaop = exp(beta_tilde) + alphaop
+  ## Calculate the recursive sequence of A
+  A_values = recursive_kernel(event_times, alphaop, betaop)
+  ## First part of log-likelihood
+  p1 = sum(log(lambdaop + alphaop * A_values))
+  ## Second part of log-likelihood
+  t_last = event_times[length(event_times)]
+  p2 = lambdaop* t_last
+  ## Third part of log-likelihood
+  p3 = alphaop / betaop * sum(exp(-betaop * (t_last - event_times)) - 1)
+  ## Return negative log-likelihood
+  return(p2 - p1 - p3)
+}
+
+theta = list()
 for(s in sort(unique(df_full$src))){
   print(s)
-  thetatraining[[s]] = optim(par=c(0,0,0), fn=negative_loglikelihood, 
-                             event_times = df_stationsh0[[s]]$time)$par
+  theta[[s]] = optim(par=c(0,0,0), fn=negative_loglikelihood, 
+                             event_times = df_stations[[s]]$time)$par
 }
 
 lambdaop = list()
@@ -172,6 +177,7 @@ for(s in sort(unique(df_full$src))){
   betaop[[s]] = exp(theta[[s]][3]) + exp(theta[[s]][2])
 }
 
+#compensator, using time-rescaling theorem
 compavals = list()
 for(s in sort(unique(df_full$src))){
   compavals[[s]] = recursive_kernel(df_stations[[s]]$time, alphaop[[s]], betaop[[s]])
@@ -315,6 +321,7 @@ for(s in sort(unique(testset$src))){
 
 boxplot(ks_scores_hawkes_test, col='lightblue', pch=20)
 
+#mutually exciting case
 #sort by destinations
 df_stations_a = list()
 for(s in sort(unique(df_full$src))){
@@ -323,33 +330,13 @@ for(s in sort(unique(df_full$src))){
 #calculate arrival times
 for(s in sort(unique(df_full$src))){
   df_stations_a[[s]]$arrival_times = sort(c(df_stations_a[[s]]$time + df_stations_a[[s]]$duration/60))
-  ## FSP: Arrival times have to be sorted
 }
 
 #find intervals
 intervs = list()
 for(s in sort(unique(df_full$src))){
   intervs[[s]] = findInterval(df_stations[[s]]$time, df_stations_a[[s]]$arrival_times)
-  ## FSP: This had to be inverted: x=time, vec=arrival_times
 }
-
-#add intervals to existing data
-## FSP: this is not needed
-#for(s in sort(unique(df_full$src))){
-#  df_stations_a[[s]]$intervals = intervs[[s]]
-#}
-
-#sort intervals
-## FSP: this is not needed
-#for(s in sort(unique(df_full$src))){
-#  df_stations_a[[s]]$intervals = sort(df_stations_a[[s]]$intervals)
-#}
-
-#sort arrival times
-## FSP: could have been done earlier
-#for(s in sort(unique(df_full$src))){
-#  df_stations_a[[s]]$arrival_times = sort(df_stations_a[[s]]$arrival_times)
-#}
 
 #defined kernel
 mutual_kernel_function <- function(t, gamma, delta) {
@@ -390,7 +377,7 @@ negative_loglikelihood_b = function(pars, departuretimes, eventdata, intervals){
   return(p2b - p1b - p3b)
 }
 
-#when I run this, it only works for 1 then stops and gives an error...
+
 thetab = list()
 for(s in sort(unique(df_full$src))){
   print(s)
@@ -572,6 +559,7 @@ for(s in sort(unique(testset$src))){
 
 boxplot(ks_scores_hawkes_btest, col='lightblue', pch=20)
 
+#self and mutually-exciting case
 negative_loglikelihood_gen = function(pars, departuretimes, eventdata, event_times, intervals){
   lambda_tilde = pars[1]
   alpha_tilde = pars[2]
